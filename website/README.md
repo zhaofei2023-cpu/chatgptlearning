@@ -6,7 +6,9 @@ React + Vite 静态网站，面向信息学竞赛教学。品牌主体：山西�
 
 - 已实现动画首页、教师/学生演示空间、班级与作业发布、代码草稿与提交、人工批阅反馈、资源检索、离线学习提示。
 - 默认是**演示模式**：数据保存在当前浏览器 localStorage，不能跨设备同步，不是正式账号系统。
-- 正式模式已编写 Supabase Auth / 数据库RLS / 作业同步与AI Edge Function 接入代码；需要管理员创建并配置实际服务后才启用。
+- 第二版已增加平台管理员、机构管理员、教师、学生四级角色；机构统一批量开户、首次改密、启停账号、机构隔离和云端作业保存接口。
+- 当前尚未配置实际 Supabase 项目；数据库、开户函数和真实账号仍需部署联调，不能把演示站视为正式上线。
+- 免费首期关闭付费AI和自动判题。
 - AI密钥、真实后端与自动评测服务未预置。演示中的离线提示不是AI对话。
 - GitHub Pages只托管前端；数据库与AI服务需要独立提供。
 
@@ -23,6 +25,8 @@ npm run dev
 生产构建：`npm run build`。将 `dist/` 的**内容**部署到站点根目录，支持 GitHub Pages 项目路径；页面路由使用哈希，刷新不会出现服务器404。
 
 ## 说明文档
+
+- **[从这里开始：免费项目创建与机构部署](docs/free-deployment.md)**
 
 - [学生与教师操作手册](docs/user-guide.md)
 - [部署、正式账号与AI接入](docs/deployment.md)
@@ -43,7 +47,7 @@ npm run dev
 
 ```sh
 npm run build
-npm run test:permissions
+npm test
 # 另开终端运行 npm run dev -- --port 4173
 npm run test:browser
 # 如果本机有系统Chromium，可指定：

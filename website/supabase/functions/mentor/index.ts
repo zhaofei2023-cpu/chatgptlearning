@@ -17,6 +17,8 @@ Deno.serve(async (req: Request) => {
   if (req.method === "OPTIONS")
     return new Response(null, { status: 204, headers });
   if (req.method !== "POST") return reply({ error: "Method not allowed" }, 405);
+  if (Deno.env.get("AI_ENABLED") !== "true")
+    return reply({ error: "AI is disabled" }, 503);
   const token = req.headers.get("Authorization");
   if (!token) return reply({ error: "Login required" }, 401);
   const client = createClient(

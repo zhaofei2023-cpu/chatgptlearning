@@ -2571,3 +2571,47 @@ small {
     scroll-behavior: auto !important;
   }
 }
+
+.admin-box {
+  margin: 24px 0;
+  padding: 28px;
+  border: 1px solid #334155;
+  border-radius: 20px;
+  background: #101d30;
+  color: #edf5fc;
+  max-width: 960px;
+}
+.admin-box form {
+  display: grid;
+  gap: 18px;
+  max-width: 680px;
+  margin-top: 20px;
+}
+.admin-box label {
+  display: grid;
+  gap: 8px;
+}
+.admin-box input,
+.admin-box textarea,
+.admin-box select {
+  width: 100%;
+  padding: 12px;
+  border: 1px solid #45607a;
+  border-radius: 8px;
+  background: #071424;
+  color: #edf5fc;
+  box-sizing: border-box;
+  font: inherit;
+}
+.admin-box p {
+  line-height: 1.8;
+  color: #b6c9dc;
+}
+.admin-table article {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+  border-top: 1px solid #334155;
+  padding: 16px 0;
+}

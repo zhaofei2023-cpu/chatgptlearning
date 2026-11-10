@@ -43,6 +43,8 @@ import {
   initial,
 } from "./data";
 import "./styles.css";
+import AdminPanel, { PasswordChange, roleNames } from "./AdminPanel";
+import { aiEnabled } from "./data";
 const I = { ArrowUpRight, ArrowRight, Code2, Sparkles, BookOpen };
 const date = (s) =>
   s
@@ -166,6 +168,8 @@ function App() {
     [chat, setChat] = useState(""),
     [sending, setSending] = useState(false);
   const isTeacher = user?.role === "teacher";
+  const isAdmin = ["platform_admin", "org_admin"].includes(user?.role);
+  const localMentor = demo || !aiEnabled;
   useEffect(() => {
     const fn = () => {
       setPage(location.hash.slice(1) || "home");
@@ -179,9 +183,11 @@ function App() {
   useEffect(() => {
     if (!cloud) return;
     let active = true;
+    let generation = 0;
     const sub = supabase.auth.onAuthStateChange((_e, session) => {
+      const request = ++generation;
       setTimeout(async () => {
-        if (!active) return;
+        if (!active || request !== generation) return;
         if (!session) {
           setUser(null);
           setDemo(false);
@@ -198,14 +204,29 @@ function App() {
           .select("*")
           .eq("id", session.user.id)
           .single();
+        if (!active || request !== generation) return;
         if (error) {
+          setUser(null);
+          setData({
+            classes: [],
+            assignments: [],
+            submissions: [],
+            resources: initial().resources,
+          });
           notice("账号资料加载失败，请联系管理员");
+          return;
+        }
+        if (!p.is_active) {
+          notice("账号尚未启用或已停用，请联系机构管理员");
+          await supabase.auth.signOut();
           return;
         }
         setDemo(false);
         setUser(p);
+        if (p.must_change_password) return;
         try {
-          setData(await fetchCloud());
+          const next = await fetchCloud();
+          if (active && request === generation) setData(next);
         } catch (e) {
           notice(e.message);
         }
@@ -254,17 +275,29 @@ function App() {
     setDemo(true);
     setData(readDemo());
     setUser({
-      id: role === "teacher" ? "teacher-demo" : "student-demo",
+      id:
+        role === "teacher"
+          ? "teacher-demo"
+          : role === "student"
+            ? "student-demo"
+            : role + "-demo",
+      institution_id: "org-demo",
       role,
-      display_name: role === "teacher" ? "探索者老师" : "探索者同学",
+      display_name: role.includes("admin")
+        ? roleNames[role]
+        : role === "teacher"
+          ? "探索者老师"
+          : "探索者同学",
     });
     setAuth(false);
-    nav(role === "teacher" ? "teacher" : "assignments");
-    notice(
-      "已进入" +
-        (role === "teacher" ? "教师" : "学生") +
-        "演示空间，数据仅存于当前浏览器",
+    nav(
+      role.includes("admin")
+        ? "admin"
+        : role === "teacher"
+          ? "teacher"
+          : "assignments",
     );
+    notice("已进入" + roleNames[role] + "演示空间，数据仅存于当前浏览器");
   }
   async function signOut() {
     if (cloud && !demo) await supabase.auth.signOut();
@@ -295,8 +328,8 @@ function App() {
   }
   async function saveSubmission(code, language) {
     if (!requireUser()) return;
-    if (isTeacher) {
-      notice("教师可以查看题目，请使用学生账号提交");
+    if (user.role !== "student") {
+      notice("请使用学生账号提交");
       return;
     }
     if (!code.trim()) {
@@ -340,7 +373,7 @@ function App() {
     setSending(true);
     try {
       let answer;
-      if (demo) {
+      if (localMentor) {
         answer = offlineHint(question, assignment);
       } else {
         const { data: r, error } = await supabase.functions.invoke("mentor", {
@@ -365,6 +398,32 @@ function App() {
   const visibleAssignments = data.assignments.filter(
     (a) => isTeacher || a.status === "published",
   );
+  if (user?.must_change_password && !demo)
+    return (
+      <>
+        <PasswordChange
+          notice={notice}
+          onDone={async () => {
+            const { data: p, error } = await supabase
+              .from("profiles")
+              .select("*")
+              .eq("id", user.id)
+              .single();
+            if (error || p.must_change_password)
+              throw Error("改密状态尚未更新，请重新登录");
+            setUser(p);
+            setData(await fetchCloud());
+            nav(p.role.includes("admin") ? "admin" : "assignments");
+          }}
+        />
+        {toast && (
+          <div className="toast" role="status">
+            {toast}
+          </div>
+        )}
+        <button onClick={signOut}>退出登录</button>
+      </>
+    );
   return (
     <>
       <header className="header">
@@ -394,6 +453,7 @@ function App() {
               教师工作台
             </a>
           )}
+          {isAdmin && <a href="#admin">机构与账号</a>}
         </nav>
         <div className="header-end">
           {user ? (
@@ -404,7 +464,7 @@ function App() {
                   {user.display_name}
                   <small>
                     {demo ? "演示 · " : ""}
-                    {isTeacher ? "教师" : "学生"}
+                    {roleNames[user.role]}
                   </small>
                 </span>
               </span>
@@ -703,7 +763,7 @@ function App() {
               />
             </div>
           </div>
-          {user && !isTeacher && (
+          {user?.role === "student" && (
             <JoinClass
               onJoin={async (code) =>
                 action(async () => {
@@ -896,9 +956,9 @@ function App() {
               <div className="mentor-symbol">
                 <Sparkles size={32} />
               </div>
-              <h3>{demo ? "离线学习提示" : "AI学习助手"}</h3>
+              <h3>{localMentor ? "离线学习提示" : "AI学习助手"}</h3>
               <p>
-                {demo
+                {localMentor
                   ? "当前未接入AI服务，以下是本地规则生成的学习提示，不是AI对话。"
                   : "从概念、边界与调试方法入手，启发独立思考。请不要输入个人敏感信息。"}
               </p>
@@ -938,7 +998,7 @@ function App() {
             <section className="chat-panel">
               <div className="chat-top">
                 <span className="dot" />
-                {demo ? "离线提示模式 · 非AI" : "启发式对话"}
+                {localMentor ? "离线提示模式 · 非AI" : "启发式对话"}
                 <span>先尝试，再求助</span>
               </div>
               <div className="messages" aria-live="polite">
@@ -958,7 +1018,7 @@ function App() {
                         <small>
                           {m.role === "user"
                             ? "我的问题"
-                            : demo
+                            : localMentor
                               ? "离线提示"
                               : "FlowSpark 学习助手"}
                         </small>
@@ -991,7 +1051,7 @@ function App() {
                 </button>
               </form>
               <small className="chat-disclaimer">
-                {demo
+                {localMentor
                   ? "本地提示不理解任意对话，请接入AI服务后使用完整答疑功能。"
                   : "AI可能出错，请结合题目与老师建议核对。代码提交不等于自动评测。"}
               </small>
@@ -999,6 +1059,20 @@ function App() {
           </div>
         </main>
       )}
+      {page === "admin" &&
+        (isAdmin ? (
+          <AdminPanel
+            user={user}
+            data={data}
+            demo={demo}
+            refresh={refresh}
+            notice={notice}
+          />
+        ) : (
+          <main className="app-main">
+            <p>请使用机构或平台管理员账号登录。</p>
+          </main>
+        ))}
       {page === "teacher" && (
         <main className="app-main">
           {isTeacher ? (
@@ -1129,7 +1203,7 @@ function App() {
                 icon: GraduationCap,
                 title: "学生使用",
                 steps: [
-                  "进入学习空间，选择学生演示，或使用正式邮箱账号登录。",
+                  "正式账号使用机构代码、用户名和密码登录；演示账号仅用于体验。",
                   "在竞赛作业页输入老师提供的邀请码，加入班级。",
                   "选择作业，阅读题目与样例，编写代码后提交给老师。",
                   "查看老师的评分和反馈；在学习助手中讨论思路。",
@@ -1151,8 +1225,8 @@ function App() {
                 steps: [
                   "GitHub Pages托管网站，不运行账号数据库或AI后端。",
                   "正式教学请创建Supabase项目，执行仓库中的SQL迁移。",
-                  "配置公开连接参数并构建；部署mentor函数，服务端保存AI密钥。",
-                  "完成角色权限、班级隔离与AI配额验收后再邀请正式用户。",
+                  "执行机构数据库迁移，部署account-admin函数；首期关闭付费AI。",
+                  "完成四级角色、跨机构隔离和跨设备数据保存验收，再邀请正式用户。",
                 ],
               },
             ].map((c) => (
@@ -1208,6 +1282,7 @@ function App() {
         "resources",
         "mentor",
         "teacher",
+        "admin",
         "guide",
       ].includes(page) && (
         <main className="app-main">
@@ -1257,6 +1332,12 @@ function App() {
                   <ArrowRight size={19} />
                 </button>
               </div>
+              <button onClick={() => loginDemo("platform_admin")}>
+                平台管理演示
+              </button>{" "}
+              <button onClick={() => loginDemo("org_admin")}>
+                机构管理演示
+              </button>
               <p className="footnote">
                 演示身份选择不属于正式账号登录。正式版接入方法见使用指南。
               </p>
@@ -1821,7 +1902,7 @@ function Editor({
   );
 }
 function AuthForm({ onSuccess, notice }) {
-  const [signup, setSignup] = useState(false),
+  const [platform, setPlatform] = useState(false),
     [busy, setBusy] = useState(false);
   return (
     <form
@@ -1830,67 +1911,71 @@ function AuthForm({ onSuccess, notice }) {
         setBusy(true);
         const f = new FormData(e.currentTarget);
         try {
-          if (signup) {
-            const { data, error } = await supabase.auth.signUp({
-              email: f.get("email"),
-              password: f.get("password"),
-              options: {
-                data: { display_name: f.get("name") },
-                emailRedirectTo: location.origin + location.pathname,
-              },
-            });
-            if (error) throw error;
-            if (data.session) onSuccess();
-            else notice("请查看邮箱并完成确认，然后登录。");
-          } else {
-            const { error } = await supabase.auth.signInWithPassword({
-              email: f.get("email"),
-              password: f.get("password"),
-            });
-            if (error) throw error;
-            onSuccess();
-          }
-        } catch (e) {
-          notice(e.message);
+          const email = platform
+            ? String(f.get("email")).trim()
+            : `${String(f.get("username")).trim().toLowerCase()}.${String(f.get("org")).trim().toLowerCase()}@users.flowspark.invalid`;
+          const { error } = await supabase.auth.signInWithPassword({
+            email,
+            password: f.get("password"),
+          });
+          if (error) throw error;
+          onSuccess();
+        } catch {
+          notice("登录失败，请核对机构代码、用户名和密码，或联系管理员");
         } finally {
           setBusy(false);
         }
       }}
     >
-      {signup && (
+      {platform ? (
         <label>
-          显示名称
-          <input required name="name" maxLength={60} autoComplete="nickname" />
+          平台管理员邮箱
+          <input type="email" name="email" autoComplete="username" required />
         </label>
+      ) : (
+        <>
+          <label>
+            机构代码
+            <input
+              name="org"
+              placeholder="机构管理员提供，例如 mkyx"
+              pattern="[a-z0-9][a-z0-9_-]{2,19}"
+              required
+            />
+          </label>
+          <label>
+            用户名
+            <input
+              name="username"
+              autoComplete="username"
+              pattern="[a-z0-9][a-z0-9_-]{2,31}"
+              required
+            />
+          </label>
+        </>
       )}
-      <label>
-        邮箱
-        <input type="email" name="email" required autoComplete="email" />
-      </label>
       <label>
         密码
         <input
           type="password"
           name="password"
-          minLength={8}
-          maxLength={128}
+          autoComplete="current-password"
           required
-          autoComplete={signup ? "new-password" : "current-password"}
+          maxLength={128}
         />
       </label>
       <button className="button dark-button" disabled={busy}>
-        {busy ? "请稍候…" : signup ? "注册学生账号" : "登录学习空间"}
+        {busy ? "登录中…" : "登录学习空间"}
       </button>
       <button
         type="button"
         className="text-button dark"
-        onClick={() => setSignup(!signup)}
+        onClick={() => setPlatform(!platform)}
       >
-        {signup ? "已有账号，返回登录" : "首次使用？注册学生账号"}
-        <ArrowRight size={16} />
+        {platform ? "返回机构账号登录" : "平台管理员邮箱登录"}
       </button>
       <p className="footnote">
-        教师身份由管理员授予，注册时不能自行选择。忘记密码请联系管理员发送重置邮件。
+        账号由机构统一创建，不开放自行注册。忘记密码请联系管理员。
       </p>
     </form>
   );

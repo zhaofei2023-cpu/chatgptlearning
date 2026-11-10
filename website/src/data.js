@@ -1,10 +1,15 @@
 import { createClient } from "@supabase/supabase-js";
 const url = import.meta.env.VITE_SUPABASE_URL,
   key = import.meta.env.VITE_SUPABASE_ANON_KEY;
+export const aiEnabled = import.meta.env.VITE_AI_ENABLED === "true";
 export const cloud = Boolean(url && key);
 export const supabase = cloud ? createClient(url, key) : null;
 const iso = (days) => new Date(Date.now() + days * 86400000).toISOString();
 export const initial = () => ({
+  institutions: [
+    { id: "org-demo", name: "玛酷机器人（迎新校区） · 演示", code: "mkyx" },
+  ],
+  profiles: [],
   classes: [
     {
       id: "class-demo",
@@ -119,7 +124,7 @@ const STORE = "flowspark-demo-v1";
 export function readDemo() {
   try {
     const x = JSON.parse(localStorage.getItem(STORE));
-    return x?.assignments && x?.classes ? x : initial();
+    return x?.assignments && x?.classes ? { ...initial(), ...x } : initial();
   } catch {
     return initial();
   }
@@ -143,12 +148,31 @@ export function starter(lang) {
       : "#include <bits/stdc++.h>\nusing namespace std;\n\nint main() {\n    ios::sync_with_stdio(false);\n    cin.tie(nullptr);\n    // 在这里开始你的探索\n    return 0;\n}\n";
 }
 export async function fetchCloud() {
-  const tables = ["classes", "assignments", "submissions", "resources"];
+  const tables = [
+    "classes",
+    "assignments",
+    "submissions",
+    "resources",
+    "institutions",
+    "profiles",
+  ];
   const rows = await Promise.all(
-    tables.map((t) => supabase.from(t).select("*")),
+    tables.map(async (table) => {
+      const records = [];
+      for (let offset = 0; ; offset += 500) {
+        const { data, error } = await supabase
+          .from(table)
+          .select("*")
+          .order("id")
+          .range(offset, offset + 499);
+        if (error) throw error;
+        records.push(...data);
+        if (data.length < 500) break;
+      }
+      return records;
+    }),
   );
-  for (const x of rows) if (x.error) throw x.error;
-  return Object.fromEntries(tables.map((t, i) => [t, rows[i].data]));
+  return Object.fromEntries(tables.map((t, i) => [t, rows[i]]));
 }
 export function offlineHint(question, assignment) {
   const s = question.toLowerCase();

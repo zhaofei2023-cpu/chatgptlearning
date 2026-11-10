@@ -1,0 +1,7 @@
+project_id = "flowspark-learning"
+
+[functions.account-admin]
+verify_jwt = true
+
+[functions.mentor]
+verify_jwt = true
