@@ -2,18 +2,25 @@
 
 项目 URL：`https://iyqdrtkaqatfvvxryawf.supabase.co`
 
-状态：用户已创建项目并提供新版 Publishable Key；开发环境已配置公开连接参数。用户确认尚未执行建表脚本。尚未验证远端表结构、认证或管理函数，现有演示站不等于已连接该项目。
+状态（2026-11-10）：用户已确认完成数据库初始化、平台管理员创建及 `account-admin` 函数部署；新版 Publishable Key 已配置。以上远端操作由用户报告完成，开发环境尚未验证实际 Auth、数据库及函数响应。网站发布后仍需用户在自己的浏览器完成首次改密、创建机构、师生开户和跨设备保存验收。
 
-## 现在先做两步
+## 发布后先验证管理员登录
 
-1. 打开 [本项目 SQL Editor](https://supabase.com/dashboard/project/iyqdrtkaqatfvvxryawf/sql/new)，新建查询。
-2. 打开仓库中的 `supabase/bootstrap-new-project.sql`，复制全部内容，粘贴后点击 **Run**。若出现 “Success. No rows returned”，说明执行成功；不要重复执行。
+1. 打开 https://zhaofei2023-cpu.github.io/chatgptlearning/ ，如果仍显示“演示版”，等待 GitHub Pages 部署并强制刷新。
+2. 点“进入学习空间”，选择“平台管理员邮箱登录”，填写自己创建的管理员邮箱和密码。不要把密码发送给协助者。
+3. 首次登录按提示更改密码，进入“机构与账号”。先创建“玛酷机器人（迎新校区）”，机构代码可用 `mkyx`。
+4. 给该机构创建一个 `org_admin` 账号，再退出平台管理员，用机构代码、用户名及临时密码登录机构管理员，首次改密后创建教师和学生。
+5. 验证教师发题、学生提交、教师评分；换设备后应能读到同一条提交和反馈。全部通过后再批量分发账号。
 
-公开密钥已经提供，不需要再找 legacy anon key。前端使用 `VITE_SUPABASE_PUBLISHABLE_KEY`，兼容旧项目的 `VITE_SUPABASE_ANON_KEY`。公开参数配置在本地被 Git 忽略的 `.env.local` 中，尚未发布正式网站。
+发布不代表真实业务验收已完成。不要重复运行初始化SQL或重复创建平台管理员。操作失败时，提供页面报错文字及 Supabase 对应函数日志中的错误摘要，遮住令牌和密码。
 
-如果之前已执行 `schema.sql`，不要运行合并脚本；只在确认基础表执行成功后执行 `supabase/migrations/002_institutions.sql`。若两份都已执行，不再重复执行。错误信息请保留原样，不删除现有表来重试。
+在 Authentication 设置中关闭 Allow new users to sign up。部分控制台位于 Authentication → Sign In / Providers → User Signups。关闭的是公开自行注册，服务端管理员创建账号仍然可用。未关闭前不批量邀请学生。
 
-接下来还要关闭自行注册、创建平台管理员和部署 `account-admin` 函数，完成后才能真实开户。完整顺序见 [免费部署文档](free-deployment.md)。不要求把平台管理员密码或服务端密钥发送给协助者。
+`ALLOWED_ORIGIN` 应为 `https://zhaofei2023-cpu.github.io`（无末尾斜线和仓库路径）。`SUPABASE_SERVICE_ROLE_KEY` 只由函数内置环境读取，不放入前端。
+
+前端支持 `VITE_SUPABASE_PUBLISHABLE_KEY`，并兼容旧版 `VITE_SUPABASE_ANON_KEY`。公开参数在本地被 Git 忽略的 `.env.local` 中，生产构建只包含公开连接参数。
+
+若开户时报 401 Invalid JWT，应核查该项目 Auth 签名算法与 Edge Function 网关 JWT 验证是否兼容；不能只根据使用 Publishable Key 判断原因，也不要删除函数内 `auth.getUser()` 和机构权限核验。先保留错误信息再排查。
 
 ## 云环境连通性
 
