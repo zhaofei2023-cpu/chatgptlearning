@@ -55,7 +55,7 @@ supabase functions deploy account-admin
 
 ## 5. 构建网站
 
-复制 `.env.example` 为本地 `.env.local`，填写公开的项目 URL 和 legacy anon key（不要填 service_role）。该文件被 Git 忽略。
+复制 `.env.example` 为本地 `.env.local`，填写公开的项目 URL 和 `VITE_SUPABASE_PUBLISHABLE_KEY`（新项目）；旧项目也兼容 `VITE_SUPABASE_ANON_KEY`。不要填 service_role。该文件被 Git 忽略。
 
 ```bash
 npm ci

@@ -1,6 +1,8 @@
 import { createClient } from "@supabase/supabase-js";
 const url = import.meta.env.VITE_SUPABASE_URL,
-  key = import.meta.env.VITE_SUPABASE_ANON_KEY;
+  key =
+    import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY ||
+    import.meta.env.VITE_SUPABASE_ANON_KEY;
 export const aiEnabled = import.meta.env.VITE_AI_ENABLED === "true";
 export const cloud = Boolean(url && key);
 export const supabase = cloud ? createClient(url, key) : null;

@@ -2,12 +2,14 @@
 
 项目 URL：`https://iyqdrtkaqatfvvxryawf.supabase.co`
 
-状态：用户已创建项目；尚未获取公开连接密钥，未验证远端表结构、认证或管理函数。现有演示站不等于已连接该项目。
+状态：用户已创建项目并提供新版 Publishable Key；开发环境已配置公开连接参数。用户确认尚未执行建表脚本。尚未验证远端表结构、认证或管理函数，现有演示站不等于已连接该项目。
 
 ## 现在先做两步
 
-1. 在项目 **Settings → API Keys → Legacy API Keys** 中复制 `anon / public` 连接密钥。可以提供这个公开密钥，不能提供 `service_role`、`sb_secret_...`、数据库密码或账号密码。若页面只有 Publishable key，请说明页面栏目；先不要为了寻找旧密钥更改项目认证配置。
-2. 如果还没有执行过任何建表脚本，打开项目 **SQL Editor → New query**，复制 `supabase/bootstrap-new-project.sql` 的全部内容，粘贴并点击 **Run**。该文件在一个事务中完成基础表和机构权限初始化，并在检测到已有 profiles 表时停止，避免重复初始化。
+1. 打开 [本项目 SQL Editor](https://supabase.com/dashboard/project/iyqdrtkaqatfvvxryawf/sql/new)，新建查询。
+2. 打开仓库中的 `supabase/bootstrap-new-project.sql`，复制全部内容，粘贴后点击 **Run**。若出现 “Success. No rows returned”，说明执行成功；不要重复执行。
+
+公开密钥已经提供，不需要再找 legacy anon key。前端使用 `VITE_SUPABASE_PUBLISHABLE_KEY`，兼容旧项目的 `VITE_SUPABASE_ANON_KEY`。公开参数配置在本地被 Git 忽略的 `.env.local` 中，尚未发布正式网站。
 
 如果之前已执行 `schema.sql`，不要运行合并脚本；只在确认基础表执行成功后执行 `supabase/migrations/002_institutions.sql`。若两份都已执行，不再重复执行。错误信息请保留原样，不删除现有表来重试。
 
