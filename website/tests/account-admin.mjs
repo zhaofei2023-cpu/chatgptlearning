@@ -17,10 +17,12 @@ const profiles = new Map(),
     ["org-b", { id: "org-b", code: "bbb", is_active: true }],
   ]);
 let created = 0;
+let authFailure = null;
 const service = {
   auth: {
     admin: {
       async createUser({ email, password }) {
+        if (authFailure) return { data: { user: null }, error: authFailure };
         assert.ok(password.length === 24);
         const id = "new-" + ++created;
         profiles.set(id, { id, email });
@@ -204,4 +206,23 @@ assert.equal(
 );
 console.log(
   "PASS: account handler authentication gates, CORS, org scope, role escalation, provisioning, disabling",
+);
+
+authFailure = { code: "email_address_invalid", status: 400 };
+const invalidEmail = await request({
+  action: "create_accounts",
+  institution_id: "org-a",
+  accounts: [{ username: "bademail", display_name: "测试", role: "student" }],
+});
+assert.equal(invalidEmail.body.results[0].error_code, "email_address_invalid");
+assert.ok(!invalidEmail.body.results[0].error.includes("已存在"));
+authFailure = { code: "email_exists", status: 422 };
+const duplicate = await request({
+  action: "create_accounts",
+  institution_id: "org-a",
+  accounts: [{ username: "duplicate", display_name: "测试", role: "student" }],
+});
+assert.ok(duplicate.body.results[0].error.includes("已存在"));
+console.log(
+  "PASS: Auth failure codes distinguish duplicate accounts from rejected internal email identifiers",
 );

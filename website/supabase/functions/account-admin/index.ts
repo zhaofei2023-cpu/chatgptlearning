@@ -1,4 +1,26 @@
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+function creationFailure(error: { code?: string; status?: number }) {
+  const code = /^[a-z0-9_]{1,80}$/.test(error.code || "")
+    ? error.code
+    : "unknown_error";
+  const reasons: Record<string, string> = {
+    email_exists: "该机构用户名已存在，请核查原账号，不要重复创建",
+    user_already_exists: "该机构用户名已存在，请核查原账号，不要重复创建",
+    email_address_invalid:
+      "认证服务拒绝内部登录标识，请联系平台管理员检查账号配置",
+    weak_password: "认证服务拒绝生成的临时密码，请联系平台管理员检查密码策略",
+    over_request_rate_limit: "请求过于频繁，请稍后再试",
+    unexpected_failure: "认证服务发生内部错误，请平台管理员查看 Auth 日志",
+  };
+  return {
+    error:
+      reasons[code!] ||
+      (error.status === 429
+        ? "请求过于频繁，请稍后再试"
+        : "认证服务创建失败，请平台管理员按错误码核查 Auth 日志"),
+    error_code: code,
+  };
+}
 Deno.serve(async (req) => {
   const origin = Deno.env.get("ALLOWED_ORIGIN");
   const headers = {
@@ -135,7 +157,7 @@ Deno.serve(async (req) => {
         if (error) {
           results.push({
             username: a.username,
-            error: "创建失败：用户名可能已存在，请到认证后台核查",
+            ...creationFailure(error),
           });
           continue;
         }

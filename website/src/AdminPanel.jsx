@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { supabase } from "./data";
+import { successfulAccounts, credentialsCsv } from "./account-export";
 export const roleNames = {
   platform_admin: "平台管理员",
   org_admin: "机构管理员",
@@ -69,13 +70,22 @@ export default function AdminPanel({ user, data, demo, refresh, notice }) {
     [results, setResults] = useState([]),
     [busy, setBusy] = useState(false);
   const platform = user.role === "platform_admin";
+  const successful = successfulAccounts(results);
   async function run(body) {
     if (demo) throw Error("管理演示不创建真实账号，请先完成云端接入");
     const { data: r, error } = await supabase.functions.invoke(
       "account-admin",
       { body },
     );
-    if (error || r?.error) throw Error(r?.error || error.message);
+    if (error || r?.error) {
+      let detail = r?.error;
+      if (!detail && error?.context instanceof Response) {
+        try {
+          detail = (await error.context.clone().json()).error;
+        } catch {}
+      }
+      throw Error(detail || error?.message || "请求失败，请联系管理员");
+    }
     return r;
   }
   async function action(fn) {
@@ -90,35 +100,16 @@ export default function AdminPanel({ user, data, demo, refresh, notice }) {
     }
   }
   function download() {
-    const cols = [
-      "institution_code",
-      "username",
-      "display_name",
-      "role",
-      "password",
-    ];
-    const cell = (x) =>
-      '"' +
-      String(x ?? "")
-        .replace(/^[=+@-]/, "'$&")
-        .replaceAll('"', '""') +
-      '"';
+    let csv;
+    try {
+      csv = credentialsCsv(results);
+    } catch (e) {
+      notice(e.message);
+      return;
+    }
     const a = document.createElement("a");
     const url = URL.createObjectURL(
-      new Blob(
-        [
-          "\ufeff" +
-            [
-              cols,
-              ...results
-                .filter((r) => !r.error)
-                .map((r) => cols.map((k) => r[k])),
-            ]
-              .map((row) => row.map(cell).join(","))
-              .join("\r\n"),
-        ],
-        { type: "text/csv;charset=utf-8" },
-      ),
+      new Blob([csv], { type: "text/csv;charset=utf-8" }),
     );
     a.href = url;
     a.download = "账号临时密码-请私下分发.csv";
@@ -224,7 +215,10 @@ export default function AdminPanel({ user, data, demo, refresh, notice }) {
                 accounts,
               });
               setResults(r.results);
-              notice("处理完成，请核查各账号结果");
+              const count = successfulAccounts(r.results).length;
+              notice(
+                `成功 ${count} 个，未成功 ${r.results.length - count} 个，请查看下方结果`,
+              );
             });
           }}
         >
@@ -245,16 +239,32 @@ export default function AdminPanel({ user, data, demo, refresh, notice }) {
         </form>
         {!!results.length && (
           <div className="notice-box">
-            <p>
-              临时密码只提供一次，请立即下载并私下分发，勿上传
-              GitHub。清除后不能查询原密码。
+            <p role="status">
+              本批成功 {successful.length} 个，未成功{" "}
+              {results.length - successful.length} 个。
             </p>
-            <button onClick={download}>下载本批账号 CSV</button>{" "}
+            {successful.length ? (
+              <p>
+                请下载成功账号并私下分发。临时密码只提供一次，勿上传
+                GitHub；清除后不能查询原密码。角色：org_admin＝机构管理员，teacher＝教师，student＝学生。
+              </p>
+            ) : (
+              <p>
+                没有成功账号，不能下载账号表。请查看下面的错误原因；若账号已存在，请核查现有账号，不要重复开户。
+              </p>
+            )}
+            <button onClick={download} disabled={!successful.length}>
+              下载成功账号 CSV（{successful.length}人）
+            </button>{" "}
             <button onClick={() => setResults([])}>清除结果</button>
             <ul>
               {results.map((r) => (
                 <li key={r.username}>
-                  {r.username}：{r.error || "已创建，首次登录需改密"}
+                  {r.username}：{r.error_code && `［${r.error_code}］`}
+                  {r.error ||
+                    (successful.includes(r)
+                      ? "已创建，首次登录需改密"
+                      : "返回资料不完整，请联系管理员核查，勿重复创建")}
                 </li>
               ))}
             </ul>
