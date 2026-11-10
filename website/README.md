@@ -26,6 +26,8 @@ npm run dev
 
 ## 说明文档
 
+- [当前已创建的 Supabase 项目接入步骤](docs/project-connection.md)
+
 - **[从这里开始：免费项目创建与机构部署](docs/free-deployment.md)**
 
 - [学生与教师操作手册](docs/user-guide.md)

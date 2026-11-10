@@ -5,11 +5,13 @@ const db = new PGlite();
 await db.exec(
   `create role anon;create role authenticated;create schema auth;create table auth.users(id uuid primary key,raw_user_meta_data jsonb,encrypted_password text);create function auth.uid() returns uuid language sql stable as $$select nullif(current_setting('request.jwt.claim.sub',true),'')::uuid$$;grant usage on schema auth to authenticated,anon;grant execute on function auth.uid() to authenticated,anon;`,
 );
-for (const path of [
-  "../supabase/schema.sql",
-  "../supabase/migrations/002_institutions.sql",
-])
-  await db.exec(await readFile(new URL(path, import.meta.url), "utf8"));
+const bootstrap = await readFile(
+  new URL("../supabase/bootstrap-new-project.sql", import.meta.url),
+  "utf8",
+);
+await db.exec(bootstrap);
+await assert.rejects(() => db.exec(bootstrap), /检测到已有 profiles 表/);
+await db.exec("rollback");
 const uid = (n) => `00000000-0000-4000-8000-${String(n).padStart(12, "0")}`;
 const orgs = [];
 for (const code of ["aaa", "bbb", "ccc"])

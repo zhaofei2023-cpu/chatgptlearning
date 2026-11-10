@@ -10,7 +10,7 @@
     "test:permissions": "node tests/permissions.mjs",
     "test:browser": "node tests/browser.mjs",
     "format": "prettier --write src tests supabase/functions docs README.md",
-    "test:institutions": "node tests/institutions.mjs",
+    "test:institutions": "node scripts/build-bootstrap.mjs --check && node tests/institutions.mjs",
     "test": "npm run test:permissions && npm run test:institutions && node tests/account-admin.mjs"
   },
   "dependencies": {
