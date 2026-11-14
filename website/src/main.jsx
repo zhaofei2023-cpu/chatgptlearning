@@ -45,6 +45,33 @@ import {
 import "./styles.css";
 import AdminPanel, { PasswordChange, roleNames } from "./AdminPanel";
 import { aiEnabled } from "./data";
+const LearningHub = React.lazy(() => import("./LearningHub"));
+const Competitions = React.lazy(() => import("./Competitions"));
+const Schools = React.lazy(() => import("./Schools"));
+import "./platform.css";
+class ModuleBoundary extends React.Component {
+  state = { failed: false };
+  static getDerivedStateFromError() {
+    return { failed: true };
+  }
+  render() {
+    return this.state.failed ? (
+      <main className="platform-main">
+        <div className="platform-alert" role="alert">
+          <h2>页面暂时未能打开</h2>
+          <p>
+            网站版本可能已更新。请重新加载后再试；如果仍失败，请联系管理员。
+          </p>
+          <button className="p-button" onClick={() => location.reload()}>
+            重新加载网站
+          </button>
+        </div>
+      </main>
+    ) : (
+      this.props.children
+    );
+  }
+}
 const I = { ArrowUpRight, ArrowRight, Code2, Sparkles, BookOpen };
 const date = (s) =>
   s
@@ -167,6 +194,8 @@ function App() {
     [messages, setMessages] = useState([]),
     [chat, setChat] = useState(""),
     [sending, setSending] = useState(false);
+  const noticeTimer = useRef(null);
+  useEffect(() => () => clearTimeout(noticeTimer.current), []);
   const isTeacher = user?.role === "teacher";
   const isAdmin = ["platform_admin", "org_admin"].includes(user?.role);
   const localMentor = demo || !aiEnabled;
@@ -241,8 +270,9 @@ function App() {
     if (demo) writeDemo(data);
   }, [data, demo]);
   function notice(t) {
+    clearTimeout(noticeTimer.current);
     setToast(t);
-    setTimeout(() => setToast(""), 5000);
+    noticeTimer.current = setTimeout(() => setToast(""), 5000);
   }
   function nav(p) {
     location.hash = p;
@@ -441,6 +471,8 @@ function App() {
             ["home", "探索首页"],
             ["assignments", "竞赛作业"],
             ["resources", "学习资源"],
+            ["competitions", "竞赛活动"],
+            ["schools", "名校探索"],
             ["mentor", "学习助手"],
             ["guide", "使用指南"],
           ].map(([k, t]) => (
@@ -458,7 +490,7 @@ function App() {
         <div className="header-end">
           {user ? (
             <>
-              <span className="user-pill">
+              <span className="user-pill" title={user.display_name}>
                 <span className="avatar">{user.display_name?.[0] || "学"}</span>
                 <span>
                   {user.display_name}
@@ -880,69 +912,63 @@ function App() {
         </main>
       )}
       {page === "resources" && (
-        <main className="app-main">
-          <PageHeading
-            kicker="KNOWLEDGE WITHOUT BORDERS"
-            title="把世界，变成课堂。"
-            subtitle="官方公开课、精选讲义与算法知识库。让好奇心有处可去。"
-          />
-          <div className="workspace-toolbar">
-            <div className="tabs">
-              {["全部", "视频", "课件"].map((t) => (
-                <button
-                  className={resourceFilter === t ? "selected" : ""}
-                  key={t}
-                  onClick={() => setResourceFilter(t)}
-                >
-                  {t}
-                </button>
-              ))}
-            </div>
-            <div className="search">
-              <Search size={16} />
-              <input
-                aria-label="搜索资源"
-                placeholder="课程、学校或关键词…"
-                value={search}
-                onChange={(e) => setSearch(e.target.value)}
-              />
-            </div>
-          </div>
-          <div className="resource-grid">
-            {data.resources
-              .filter(
-                (r) =>
-                  (resourceFilter === "全部" || r.kind === resourceFilter) &&
-                  (r.title + r.school + r.description)
-                    .toLowerCase()
-                    .includes(search.toLowerCase()),
-              )
-              .map((r) => (
-                <ResourceCard
-                  key={r.id}
-                  r={r}
-                  onSave={() => {
-                    const k = "flowspark-bookmarks-" + (user?.id || "guest");
-                    const v = JSON.parse(localStorage.getItem(k) || "[]");
-                    localStorage.setItem(
-                      k,
-                      JSON.stringify(
-                        v.includes(r.id)
-                          ? v.filter((x) => x !== r.id)
-                          : [...v, r.id],
-                      ),
-                    );
-                    notice(
-                      v.includes(r.id) ? "已取消收藏" : "已收藏在当前浏览器",
-                    );
-                  }}
-                />
-              ))}
-          </div>
-          <p className="footnote">
-            课程链接指向官方网站。部分课程为英语；部分材料可能需要在官网登录。本站不托管或转载未经授权的课件及视频。
-          </p>
-        </main>
+        <ModuleBoundary>
+          <React.Suspense
+            fallback={
+              <main className="app-main" role="status">
+                正在打开学习资源…
+              </main>
+            }
+          >
+            <LearningHub
+              user={user}
+              demo={demo}
+              institutions={data.institutions || []}
+              legacyResources={data.resources}
+              onLogin={() => setAuth(true)}
+              notice={notice}
+            />
+          </React.Suspense>
+        </ModuleBoundary>
+      )}
+      {page === "competitions" && (
+        <ModuleBoundary>
+          <React.Suspense
+            fallback={
+              <main className="app-main" role="status">
+                正在打开竞赛活动…
+              </main>
+            }
+          >
+            <Competitions
+              user={user}
+              demo={demo}
+              institutions={data.institutions || []}
+              profiles={data.profiles || []}
+              onLogin={() => setAuth(true)}
+              notice={notice}
+            />
+          </React.Suspense>
+        </ModuleBoundary>
+      )}
+      {page === "schools" && (
+        <ModuleBoundary>
+          <React.Suspense
+            fallback={
+              <main className="app-main" role="status">
+                正在打开名校信息…
+              </main>
+            }
+          >
+            <Schools
+              user={user}
+              demo={demo}
+              institutions={data.institutions || []}
+              onLogin={() => setAuth(true)}
+              notice={notice}
+            />
+          </React.Suspense>
+        </ModuleBoundary>
       )}
       {page === "mentor" && (
         <main className="app-main">
@@ -1241,6 +1267,19 @@ function App() {
               </article>
             ))}
           </div>
+          <section className="platform-note">
+            <h3>管理员内容工作台</h3>
+            <p>
+              资源中心支持主题整理和本地素材上传；竞赛活动支持赛程、题目和人工评阅；名校探索支持编辑并发布学校信息。新模块启用前需执行一次数据库升级。
+            </p>
+            <a
+              className="p-button secondary"
+              href={`${import.meta.env.BASE_URL}docs/content-management.md`}
+              download
+            >
+              下载新版内容管理手册
+            </a>
+          </section>
           <div className="guide-download">
             <div>
               <h3>把操作手册，放在手边。</h3>
@@ -1280,6 +1319,8 @@ function App() {
         "assignments",
         "workspace",
         "resources",
+        "competitions",
+        "schools",
         "mentor",
         "teacher",
         "admin",

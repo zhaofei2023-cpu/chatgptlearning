@@ -123,6 +123,20 @@ export default function AdminPanel({ user, data, demo, refresh, notice }) {
         <h1>{roleNames[user.role]}工作台</h1>
         <p>统一开户 · 机构隔离 · 教学记录保存</p>
       </div>
+      <div className="admin-shortcuts">
+        <a href="#resources">
+          <b>资源中心管理 ↗</b>
+          <span>上传视频、课件、知识地图，整理学习主题</span>
+        </a>
+        <a href="#competitions">
+          <b>竞赛活动管理 ↗</b>
+          <span>设置赛程与要求，编辑题目，举办定期挑战</span>
+        </a>
+        <a href="#schools">
+          <b>名校信息管理 ↗</b>
+          <span>编辑学校介绍与课程资讯，审核后发布</span>
+        </a>
+      </div>
       {demo && (
         <p className="notice-box">
           这是管理界面演示。真实开户需要接入 Supabase。

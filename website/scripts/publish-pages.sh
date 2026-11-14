@@ -35,4 +35,4 @@ if git -C "$publish_dir" diff --cached --quiet; then
 fi
 git -C "$publish_dir" -c user.name='FlowSpark Publisher' -c user.email='codex@users.noreply.github.com' commit -q -m 'Publish FlowSpark learning website'
 git -C "$publish_dir" push origin HEAD:refs/heads/gh-pages
-echo '静态产物已推送。首次发布请在GitHub Settings → Pages选择gh-pages / (root)。'
+echo '静态产物已推送。已启用的GitHub Pages会自动部署；首次使用才需选择gh-pages / (root)。'

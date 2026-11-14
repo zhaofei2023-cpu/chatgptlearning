@@ -1,8 +1,8 @@
 # 部署说明
 
-当前第二版支持机构统一开户、四级角色及机构隔离。请以 [免费正式部署步骤](free-deployment.md) 为准，包含 Supabase Free 项目创建、数据库迁移、平台管理员初始化、开户函数和前端部署。
+第二版支持机构统一开户、四级角色及机构隔离；第三版增加私有素材上传、竞赛和名校信息，现有项目升级见 [内容管理手册](content-management.md)。请以 [免费正式部署步骤](free-deployment.md) 为准，包含 Supabase Free 项目创建、数据库迁移、平台管理员初始化、开户函数和前端部署。
 
-现有 GitHub Pages 地址 https://zhaofei2023-cpu.github.io/chatgptlearning/ 是演示站，使用 `gh-pages` 分支。源代码在 `flowspark-website` 分支 `website/` 目录。只更新源代码不会连接真实数据库。现有 Pages 设置已经完成，无需反复开启。
+现有 GitHub Pages 地址 https://zhaofei2023-cpu.github.io/chatgptlearning/ 使用 `gh-pages` 发布分支，已配置Supabase公开连接；没有连接参数的本地版本才是演示模式。源代码在 `flowspark-website` 分支 `website/` 目录。只更新源代码不会连接真实数据库。现有 Pages 设置已经完成，无需反复开启。
 
 部署前端时只上传 `dist/`，不上传 `.env.local`、学生清单或临时密码。正式机构服务需核对托管用途限制；建议源码保留 GitHub，前端采用适合应用托管的免费静态服务。
 
