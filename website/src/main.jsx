@@ -45,6 +45,9 @@ import {
 import "./styles.css";
 import AdminPanel, { PasswordChange, roleNames } from "./AdminPanel";
 import { aiEnabled } from "./data";
+import TeacherStudio from "./TeacherStudio";
+import { latestSubmissions } from "./teaching-rules";
+const StudyReports = React.lazy(() => import("./StudyReports"));
 const LearningHub = React.lazy(() => import("./LearningHub"));
 const Competitions = React.lazy(() => import("./Competitions"));
 const Schools = React.lazy(() => import("./Schools"));
@@ -378,15 +381,56 @@ function App() {
       return;
     }
     await action(async () => {
-      await insert("submissions", {
-        assignment_id: assignment.id,
-        student_id: user.id,
-        ...(demo ? { student_name: user.display_name } : {}),
-        language,
-        code,
-        status: "pending",
-        submitted_at: new Date().toISOString(),
-      });
+      if (demo) {
+        const latest = latestSubmissions(data.submissions).find(
+          (s) => s.assignment_id === assignment.id && s.student_id === user.id,
+        );
+        const row = {
+          id: latest?.id || crypto.randomUUID(),
+          assignment_id: assignment.id,
+          student_id: user.id,
+          student_name: user.display_name,
+          code,
+          language,
+          status: "pending",
+          score: null,
+          feedback: null,
+          submitted_at: new Date().toISOString(),
+          attempt_count: (latest?.attempt_count || 0) + 1,
+        };
+        setData((d) => ({
+          ...d,
+          submissions: [
+            row,
+            ...d.submissions.filter(
+              (s) =>
+                !(
+                  s.assignment_id === assignment.id && s.student_id === user.id
+                ),
+            ),
+          ],
+        }));
+      } else if (!data.v4Ready) {
+        await insert("submissions", {
+          assignment_id: assignment.id,
+          student_id: user.id,
+          code,
+          language,
+        });
+      } else {
+        const { error } = await supabase.rpc("submit_solution", {
+          p_assignment: assignment.id,
+          p_code: code,
+          p_language: language,
+        });
+        if (error)
+          throw Error(
+            error.code === "PGRST202"
+              ? "请管理员先执行第四版数据库升级，再提交代码"
+              : error.message,
+          );
+        await refresh();
+      }
       notice(
         demo ? "演示提交已保存，等待教师演示批阅" : "提交成功，等待老师批阅",
       );
@@ -426,7 +470,7 @@ function App() {
     }
   }
   const visibleAssignments = data.assignments.filter(
-    (a) => isTeacher || a.status === "published",
+    (a) => a.status !== "archived" && (isTeacher || a.status === "published"),
   );
   if (user?.must_change_password && !demo)
     return (
@@ -897,6 +941,7 @@ function App() {
               user={user}
               demo={demo}
               busy={busy}
+              latestOnly={demo || data.v4Ready}
               onSubmit={saveSubmission}
               submissions={data.submissions.filter(
                 (s) =>
@@ -1085,6 +1130,25 @@ function App() {
           </div>
         </main>
       )}
+      {page === "reports" &&
+        (isAdmin ? (
+          <ModuleBoundary>
+            <React.Suspense
+              fallback={<main className="app-main">正在加载学情报告…</main>}
+            >
+              <StudyReports
+                user={user}
+                data={data}
+                demo={demo}
+                notice={notice}
+              />
+            </React.Suspense>
+          </ModuleBoundary>
+        ) : (
+          <main className="app-main">
+            <p>学情报告仅向管理员开放。</p>
+          </main>
+        ))}
       {page === "admin" &&
         (isAdmin ? (
           <AdminPanel
@@ -1103,113 +1167,16 @@ function App() {
         <main className="app-main">
           {isTeacher ? (
             <>
-              <PageHeading
-                kicker="TEACHER STUDIO"
-                title="点亮下一段探索。"
-                subtitle="发布学习任务，理解学生的思考，为每一次尝试提供反馈。"
+              <TeacherStudio
+                user={user}
+                data={data}
+                demo={demo}
+                setData={setData}
+                refresh={refresh}
+                notice={notice}
+                onClass={() => setModal("class")}
+                onReview={(s) => setModal({ review: s })}
               />
-              <div className="teacher-stats">
-                {[
-                  ["我的班级", data.classes.length, Users],
-                  ["发布的作业", data.assignments.length, FileCode2],
-                  [
-                    "待批阅提交",
-                    data.submissions.filter((s) => s.status === "pending")
-                      .length,
-                    Clock,
-                  ],
-                ].map(([t, n, Icon]) => (
-                  <div key={t}>
-                    <Icon size={24} />
-                    <span>
-                      {t}
-                      <b>{n}</b>
-                    </span>
-                  </div>
-                ))}
-              </div>
-              <div className="teacher-actions">
-                <button
-                  className="button dark-button"
-                  onClick={() => setModal("assignment")}
-                >
-                  <Plus size={17} />
-                  发布作业
-                </button>
-                <button
-                  className="button outline"
-                  onClick={() => setModal("class")}
-                >
-                  <Users size={17} />
-                  创建班级
-                </button>
-                <button
-                  className="button outline"
-                  onClick={() => setModal("resource")}
-                >
-                  <BookOpen size={17} />
-                  添加资源
-                </button>
-              </div>
-              <div className="class-list">
-                {data.classes.map((c) => (
-                  <div key={c.id}>
-                    <span>{c.name}</span>
-                    <small>
-                      邀请码 <b>{c.join_code}</b>
-                    </small>
-                    <button
-                      className="icon-button"
-                      aria-label="复制邀请码"
-                      onClick={() =>
-                        navigator.clipboard
-                          .writeText(c.join_code)
-                          .then(() => notice("邀请码已复制"))
-                          .catch(() => notice("邀请码：" + c.join_code))
-                      }
-                    >
-                      <Copy size={15} />
-                    </button>
-                  </div>
-                ))}
-              </div>
-              <h3 className="subheading">
-                学生提交 <span>{data.submissions.length}</span>
-              </h3>
-              {!data.submissions.length ? (
-                <Empty text="学生提交后，代码和批阅入口会显示在这里。" />
-              ) : (
-                <div className="submission-list">
-                  {data.submissions.map((s) => (
-                    <article key={s.id}>
-                      <div>
-                        <span
-                          className={
-                            "status " + (s.status === "graded" ? "done" : "")
-                          }
-                        >
-                          {s.status === "graded" ? "已批阅" : "待批阅"}
-                        </span>
-                        <h3>
-                          {data.assignments.find(
-                            (a) => a.id === s.assignment_id,
-                          )?.title || "作业"}
-                        </h3>
-                        <small>
-                          {s.student_name || s.student_id.slice(0, 8)} ·{" "}
-                          {s.language} · {date(s.submitted_at)}
-                        </small>
-                      </div>
-                      <button
-                        className="button outline"
-                        onClick={() => setModal({ review: s })}
-                      >
-                        查看与批阅 <ArrowUpRight size={16} />
-                      </button>
-                    </article>
-                  ))}
-                </div>
-              )}
             </>
           ) : (
             <Empty text="此页面仅对教师开放。请登录教师账号；演示身份不代表正式权限。" />
@@ -1324,6 +1291,7 @@ function App() {
         "mentor",
         "teacher",
         "admin",
+        "reports",
         "guide",
       ].includes(page) && (
         <main className="app-main">
@@ -1607,14 +1575,25 @@ function App() {
                   setData((d) => ({
                     ...d,
                     submissions: d.submissions.map((s) =>
-                      s.id === modal.review.id ? { ...s, ...patch } : s,
+                      s.id === modal.review.id &&
+                      (s.attempt_count || 1) ===
+                        (modal.review.attempt_count || 1)
+                        ? { ...s, ...patch }
+                        : s,
                     ),
                   }));
                 else {
-                  const { error } = await supabase
-                    .from("submissions")
-                    .update(patch)
-                    .eq("id", modal.review.id);
+                  const { error } = data.v4Ready
+                    ? await supabase.rpc("grade_solution", {
+                        p_submission: modal.review.id,
+                        p_revision: modal.review.attempt_count || 1,
+                        p_score: score,
+                        p_feedback: String(f.get("feedback")),
+                      })
+                    : await supabase
+                        .from("submissions")
+                        .update(patch)
+                        .eq("id", modal.review.id);
                   if (error) throw error;
                   await refresh();
                 }
@@ -1808,6 +1787,7 @@ function Editor({
   onMentor,
   notice,
   busy,
+  latestOnly,
 }) {
   const [lang, setLang] = useState("C++17");
   const draftKey = (l) => `flowspark-draft-${user?.id || "guest"}-${a.id}-${l}`;
@@ -1910,9 +1890,14 @@ function Editor({
         </section>
       </div>
       <section className="submission-history">
-        <h3>我的提交记录</h3>
+        <h3>我的最新提交</h3>
+        <p className="muted">
+          {latestOnly
+            ? "同一账号每题仅保留最新代码；再次提交会覆盖旧代码，原评分清空后等待重新批阅。"
+            : "数据库升级前继续沿用原方式保存，界面显示最近一次提交；升级后将归并旧记录并启用覆盖提交。"}
+        </p>
         {submissions.length ? (
-          submissions
+          latestSubmissions(submissions)
             .slice()
             .sort((x, y) => y.submitted_at.localeCompare(x.submitted_at))
             .map((s) => (
@@ -1932,6 +1917,21 @@ function Editor({
                     {s.language}
                   </small>
                 </div>
+                <p>累计提交 {s.attempt_count || 1} 次 · 当前仅保留此版本</p>
+                <button
+                  className="button outline"
+                  onClick={() => {
+                    if (s.code) {
+                      localStorage.setItem(draftKey(lang), code);
+                      setLang(s.language);
+                      setCode(s.code);
+                      localStorage.setItem(draftKey(s.language), s.code);
+                      notice("已载入最新提交代码");
+                    }
+                  }}
+                >
+                  载入最新提交
+                </button>
                 {s.feedback && <p>{s.feedback}</p>}
               </article>
             ))

@@ -5,3 +5,6 @@ verify_jwt = true
 
 [functions.mentor]
 verify_jwt = true
+
+[functions.study-report]
+verify_jwt = true

@@ -72,6 +72,8 @@ export const initial = () => ({
     },
   ],
   submissions: [],
+  assignment_categories: [],
+  v4Ready: true,
   resources: [
     {
       id: "mit",
@@ -174,7 +176,21 @@ export async function fetchCloud() {
       return records;
     }),
   );
-  return Object.fromEntries(tables.map((t, i) => [t, rows[i]]));
+  const result = Object.fromEntries(tables.map((t, i) => [t, rows[i]]));
+  const categories = await supabase
+    .from("assignment_categories")
+    .select("*")
+    .order("title");
+  if (
+    categories.error &&
+    !["42P01", "PGRST205"].includes(categories.error.code)
+  )
+    throw categories.error;
+  return {
+    ...result,
+    assignment_categories: categories.data || [],
+    v4Ready: !categories.error,
+  };
 }
 export function offlineHint(question, assignment) {
   const s = question.toLowerCase();

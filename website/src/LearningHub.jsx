@@ -35,6 +35,7 @@ import {
   scopeName,
 } from "./PlatformUI";
 import { safeUrl } from "./data";
+import { validateCover } from "./teaching-rules";
 function TopicEditor({ row, user, institutions, api, onClose, notice }) {
   const [scope, setScope] = useState(
     row?.institution_id ??
@@ -115,6 +116,8 @@ function ItemEditor({ row, user, institutions, api, onClose, notice }) {
     [source, setSource] = useState(row?.source_type || "upload"),
     [kind, setKind] = useState(row?.kind || "video"),
     [file, setFile] = useState(null),
+    [cover, setCover] = useState(null),
+    [removeCover, setRemoveCover] = useState(false),
     [id] = useState(row?.id || crypto.randomUUID());
   const task = useTask(notice);
   return (
@@ -135,7 +138,8 @@ function ItemEditor({ row, user, institutions, api, onClose, notice }) {
             if (source === "upload" && file) validateFile(file, kind);
             if (source === "text" && !String(f.get("body")).trim())
               throw Error("请填写正文");
-            await api.saveItem(
+            if (cover) validateCover(cover);
+            const saved = await api.saveItem(
               {
                 id,
                 institution_id: scope,
@@ -157,8 +161,10 @@ function ItemEditor({ row, user, institutions, api, onClose, notice }) {
                   : {}),
               },
               source === "upload" ? file : null,
+              cover,
+              removeCover,
             );
-            notice("素材已保存");
+            notice(saved.cleanupWarning || "素材已保存");
             onClose();
           });
         }}
@@ -288,6 +294,41 @@ function ItemEditor({ row, user, institutions, api, onClose, notice }) {
             />
           </label>
         )}
+        <fieldset className="cover-upload">
+          <legend>资源封面</legend>
+          <p>
+            视频、课件和外部学习链接均可使用自定义封面。支持PNG/JPG/WebP，最多5MB。
+          </p>
+          {row?.cover_path && !removeCover && !cover && (
+            <ResourceCover row={row} api={api} kind={kind} />
+          )}
+          <label>
+            选择封面图片
+            <input
+              aria-label="上传资源封面"
+              type="file"
+              accept="image/png,image/jpeg,image/webp"
+              onChange={(e) => {
+                setCover(e.target.files?.[0] || null);
+                setRemoveCover(false);
+              }}
+            />
+          </label>
+          {cover && <p>新封面：{cover.name}</p>}
+          {(row?.cover_path || cover) && (
+            <button
+              className="p-text-button p-danger"
+              type="button"
+              onClick={() => {
+                setCover(null);
+                setRemoveCover(true);
+              }}
+            >
+              移除封面
+            </button>
+          )}
+          {removeCover && <p>保存后将恢复默认封面。</p>}
+        </fieldset>
         <StatusField value={row?.status} />
         <FormError error={task.error} />
         {task.busy && (
@@ -418,6 +459,51 @@ function Preview({ row, api, onClose }) {
         )
       )}
     </Dialog>
+  );
+}
+function ResourceCover({ row, api, kind }) {
+  const [url, setUrl] = useState("");
+  useEffect(() => {
+    let live = true,
+      local;
+    setUrl("");
+    if (row.cover_path)
+      api
+        .coverUrl(row)
+        .then((u) => {
+          local = u;
+          if (live) setUrl(u);
+          else if (u?.startsWith("blob:")) URL.revokeObjectURL(u);
+        })
+        .catch(() => {});
+    return () => {
+      live = false;
+      if (local?.startsWith("blob:")) URL.revokeObjectURL(local);
+    };
+  }, [row.id, row.cover_path]);
+  const Icon =
+    (kind || row.kind) === "video"
+      ? Play
+      : (kind || row.kind) === "knowledge_map"
+        ? Network
+        : FileText;
+  return (
+    <div className={"resource-art " + (kind || row.kind)}>
+      {url ? (
+        <img
+          className="resource-cover"
+          src={url}
+          alt={row.title + "封面"}
+          loading="lazy"
+          onError={() => setUrl("")}
+        />
+      ) : (
+        <>
+          <Icon size={42} />
+          <span>{KINDS[kind || row.kind]}</span>
+        </>
+      )}
+    </div>
   );
 }
 export default function LearningHub({
@@ -591,10 +677,7 @@ export default function LearningHub({
                       : FileText;
                 return (
                   <article className="p-resource-card" key={r.id}>
-                    <div className={"resource-art " + r.kind}>
-                      <Icon size={42} />
-                      <span>{KINDS[r.kind]}</span>
-                    </div>
+                    <ResourceCover row={r} api={api} />
                     <div className="resource-card-content">
                       <div className="p-card-meta">
                         <Badge tone={r.status === "draft" ? "muted" : ""}>

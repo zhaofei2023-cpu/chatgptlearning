@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { supabase } from "./data";
+import { validateCover, latestSubmissions } from "./teaching-rules";
 import {
   TABLES,
   KINDS,
@@ -305,31 +306,46 @@ export function usePlatform(user, demo, section = "all") {
     await refresh();
     return row;
   }
-  async function saveItem(payload, file) {
-    if (!isAdmin(user)) throw Error("只有管理员可以上传和发布");
-    const previous = data.learning_items.find((r) => r.id === payload.id);
-    let current = previous,
-      newPath = null;
+  async function saveItem(payload, file, cover, removeCover = false) {
+    if (!isAdmin(user) || !manages(user, payload.institution_id))
+      throw Error("只有对应范围管理员可以上传和发布");
+    if (file) validateFile(file, payload.kind);
+    if (cover) validateCover(cover);
+    const previous = data.learning_items.find((r) => r.id === payload.id),
+      uploaded = [];
+    let committed = false;
+    async function store(bucket, path, blob, mime) {
+      uploaded.push({ bucket, path });
+      if (demo) await blobStore(path, blob);
+      else {
+        const { error } = await supabase.storage
+          .from(bucket)
+          .upload(path, blob, { contentType: mime, upsert: false });
+        if (error) throw error;
+      }
+    }
+    async function erase(bucket, path) {
+      if (demo) await blobStore(path, null);
+      else {
+        const { error } = await supabase.storage.from(bucket).remove([path]);
+        if (error) throw error;
+      }
+    }
     try {
+      if ((file || cover) && !previous)
+        await save("learning_items", {
+          ...payload,
+          status: "draft",
+          object_path: null,
+        });
+      const prefix = `${payload.institution_id || "global"}/${user.id}/${payload.id}`;
       if (file) {
         const { ext, mime } = validateFile(file, payload.kind);
-        if (!current)
-          current = await save("learning_items", {
-            ...payload,
-            status: "draft",
-            object_path: null,
-          });
-        newPath = `${payload.institution_id || "global"}/${user.id}/${payload.id}/${crypto.randomUUID()}.${ext}`;
-        if (demo) await blobStore(newPath, file);
-        else {
-          const { error } = await supabase.storage
-            .from("learning-materials")
-            .upload(newPath, file, { contentType: mime, upsert: false });
-          if (error) throw error;
-        }
+        const path = `${prefix}/${crypto.randomUUID()}.${ext}`;
+        await store("learning-materials", path, file, mime);
         payload = {
           ...payload,
-          object_path: newPath,
+          object_path: path,
           file_name: file.name,
           file_size: file.size,
           mime_type: mime,
@@ -345,31 +361,61 @@ export function usePlatform(user, demo, section = "all") {
           file_size: null,
           mime_type: null,
         };
+      if (cover) {
+        const { ext, mime } = validateCover(cover);
+        const path = `${prefix}/${crypto.randomUUID()}.${ext}`;
+        await store("learning-covers", path, cover, mime);
+        payload = { ...payload, cover_path: path };
+      } else if (
+        removeCover ||
+        (previous && Object.hasOwn(previous, "cover_path"))
+      )
+        payload = {
+          ...payload,
+          cover_path: removeCover ? null : previous?.cover_path || null,
+        };
       const result = await save("learning_items", payload);
-      if (
-        previous?.object_path &&
-        previous.object_path !== result.object_path
-      ) {
-        if (demo) await blobStore(previous.object_path, null);
-        else
-          await supabase.storage
-            .from("learning-materials")
-            .remove([previous.object_path]);
+      committed = true;
+      let cleanupWarning = "";
+      for (const [bucket, oldPath, newPath] of [
+        ["learning-materials", previous?.object_path, result.object_path],
+        ["learning-covers", previous?.cover_path, result.cover_path],
+      ]) {
+        if (oldPath && oldPath !== newPath)
+          try {
+            await erase(bucket, oldPath);
+          } catch {
+            cleanupWarning =
+              "素材已保存，但旧文件清理失败，请管理员在Storage检查旧文件。";
+          }
       }
-      return result;
+      return { ...result, cleanupWarning };
     } catch (e) {
-      if (newPath) {
-        if (demo) await blobStore(newPath, null);
-        else
-          await supabase.storage.from("learning-materials").remove([newPath]);
-      }
+      if (!committed)
+        for (const asset of uploaded)
+          try {
+            await erase(asset.bucket, asset.path);
+          } catch {}
       await refresh();
+      if (["PGRST204", "PGRST202"].includes(e.code))
+        throw Error(
+          "请管理员先执行004_teaching_reports_covers.sql后再使用封面和最新提交功能",
+        );
       throw e;
     }
   }
   async function removeItem(row) {
     if (!manages(user, row.institution_id)) throw Error("没有删除权限");
     await save("learning_items", { id: row.id, status: "draft" });
+    if (row.cover_path) {
+      if (demo) await blobStore(row.cover_path, null);
+      else {
+        const { error } = await supabase.storage
+          .from("learning-covers")
+          .remove([row.cover_path]);
+        if (error) throw error;
+      }
+    }
     if (row.object_path) {
       if (demo) await blobStore(row.object_path, null);
       else {
@@ -406,6 +452,19 @@ export function usePlatform(user, demo, section = "all") {
     const { data: r, error } = await supabase.storage
       .from("learning-materials")
       .createSignedUrl(row.object_path, 3600);
+    if (error) throw error;
+    return r.signedUrl;
+  }
+  async function coverUrl(row) {
+    if (!row.cover_path) return null;
+    if (demo) {
+      const blob = await blobStore(row.cover_path);
+      if (!blob) throw Error("封面文件不存在");
+      return URL.createObjectURL(blob);
+    }
+    const { data: r, error } = await supabase.storage
+      .from("learning-covers")
+      .createSignedUrl(row.cover_path, 3600);
     if (error) throw error;
     return r.signedUrl;
   }
@@ -458,7 +517,14 @@ export function usePlatform(user, demo, section = "all") {
         )
       )
         throw Error("仅已报名学生可在竞赛时间内提交");
+      const old = all.competition_submissions.find(
+        (s) => s.student_id === user.id && s.problem_id === problem.id,
+      );
+      all.competition_submissions = all.competition_submissions.filter(
+        (s) => !(s.student_id === user.id && s.problem_id === problem.id),
+      );
       all.competition_submissions.push({
+        attempt_count: (old?.attempt_count || 0) + 1,
         id: crypto.randomUUID(),
         problem_id: problem.id,
         student_id: user.id,
@@ -470,11 +536,10 @@ export function usePlatform(user, demo, section = "all") {
       });
       localStorage.setItem(STORE, JSON.stringify(all));
     } else {
-      const { error } = await supabase.from("competition_submissions").insert({
-        problem_id: problem.id,
-        student_id: user.id,
-        code,
-        language,
+      const { error } = await supabase.rpc("submit_competition_solution", {
+        p_problem: problem.id,
+        p_code: code,
+        p_language: language,
       });
       if (error) throw error;
     }
@@ -547,6 +612,7 @@ export function usePlatform(user, demo, section = "all") {
     save,
     saveItem,
     assetUrl,
+    coverUrl,
     removeItem,
     register,
     submit,

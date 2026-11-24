@@ -123,7 +123,23 @@ export default function AdminPanel({ user, data, demo, refresh, notice }) {
         <h1>{roleNames[user.role]}工作台</h1>
         <p>统一开户 · 机构隔离 · 教学记录保存</p>
       </div>
+      {!demo && data.v4Ready === false && (
+        <div className="platform-alert">
+          第四版功能已更新，数据库仍需升级。请先阅读
+          <a href="docs/teaching-v4.md" target="_blank" rel="noreferrer">
+            升级说明
+          </a>
+          ，执行004迁移；原账号不变。{" "}
+          <a href="upgrades/004_teaching_reports_covers.sql" download>
+            下载升级SQL
+          </a>
+        </div>
+      )}
       <div className="admin-shortcuts">
+        <a href="#reports">
+          <b>AI学情报告 ↗</b>
+          <span>按学生查看近期代码，与AI讨论报告结构和内容</span>
+        </a>
         <a href="#resources">
           <b>资源中心管理 ↗</b>
           <span>上传视频、课件、知识地图，整理学习主题</span>
