@@ -46,11 +46,9 @@ try {
   await fill("输出说明", "整数和");
   await button("保存题目").click();
   await p.getByRole("dialog").waitFor({ state: "hidden" });
-  const card = p
-    .locator(".assignment-card")
-    .filter({
-      has: p.getByRole("heading", { name: "第四版求和练习", exact: true }),
-    });
+  const card = p.locator(".assignment-card").filter({
+    has: p.getByRole("heading", { name: "第四版求和练习", exact: true }),
+  });
   assert.match(await card.innerText(), /草稿/);
   await card.getByRole("button", { name: "发布题目", exact: true }).click();
   await card.getByText("已发布", { exact: true }).waitFor();
@@ -100,39 +98,55 @@ try {
     .waitFor();
   await fill("报告要求", "按概况、代码依据、下周建议三部分写报告。");
   await button("保存为我的默认模板").click();
-  await fill("分析对话", "请加入给家长看的简明摘要");
-  await button("发送讨论").click();
-  await p.getByText(/【本地演示，未调用AI】/).waitFor();
-  await button("生成 / 修订报告").click();
+  const paidRequests = [];
+  p.on("request", (r) => {
+    if (/functions\/v1\/study-report|api\.openai\.com/.test(r.url()))
+      paidRequests.push(r.url());
+  });
+  await button("生成并保存统计报告").click();
   await p.locator(".report-document").waitFor();
   assert.match(
     await p.locator(".report-document").innerText(),
     /最新作业记录1题/,
   );
-  assert.equal(await p.locator(".report-history li").count(), 1);
+  await button("准备匿名分析资料").click();
+  const preview = p.getByLabel("匿名资料预览", { exact: true });
+  await preview.waitFor();
+  assert.doesNotMatch(
+    await preview.inputValue(),
+    /print\(|探索者同学|student-demo/,
+  );
+  await p.getByLabel("附带最新代码（默认不选）").check();
+  await button("准备匿名分析资料").click();
+  await preview.waitFor();
+  assert.match(await preview.inputValue(), /latest/);
+  await fill("最终报告内容", "# 手动分析报告\n代码边界仍需教师核实。");
+  await button("保存导入报告").click();
+  await p
+    .locator(".report-document")
+    .getByText("手动分析报告", { exact: true })
+    .waitFor();
+  assert.equal(await p.locator(".report-history li").count(), 2);
+  assert.equal(paidRequests.length, 0);
   await p.getByRole("link", { name: "学习资源", exact: true }).first().click();
   await button("上传素材").click();
   await fill("素材名称", "带封面的外链课程");
   await p.getByLabel("添加方式").selectOption("link");
   await fill("HTTPS资源链接", "https://example.org/course");
-  await p
-    .getByLabel("上传资源封面")
-    .setInputFiles({
-      name: "cover.png",
-      mimeType: "image/png",
-      buffer: Buffer.from(
-        "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+aNagAAAAASUVORK5CYII=",
-        "base64",
-      ),
-    });
+  await p.getByLabel("上传资源封面").setInputFiles({
+    name: "cover.png",
+    mimeType: "image/png",
+    buffer: Buffer.from(
+      "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+aNagAAAAASUVORK5CYII=",
+      "base64",
+    ),
+  });
   await p.getByLabel("发布状态").selectOption("published");
   await button("保存素材").click();
   await p.getByRole("dialog").waitFor({ state: "hidden" });
-  const rc = p
-    .locator(".p-resource-card")
-    .filter({
-      has: p.getByRole("heading", { name: "带封面的外链课程", exact: true }),
-    });
+  const rc = p.locator(".p-resource-card").filter({
+    has: p.getByRole("heading", { name: "带封面的外链课程", exact: true }),
+  });
   await rc.locator("img.resource-cover").waitFor();
   assert.ok(
     await rc.locator("img.resource-cover").evaluate((i) => i.naturalWidth > 0),
@@ -156,7 +170,7 @@ try {
   );
   assert.deepEqual(errors, []);
   console.log(
-    "PASS: browser teacher categories/draft/publish/archive, student overwrite, account collection/review, admin report conversation/history/template and private cover upload/delete",
+    "PASS: browser teacher categories/draft/publish/archive, student overwrite, account collection/review, admin free statistics/privacy/export/import/history/template and private cover upload/delete",
   );
 } finally {
   await browser.close();

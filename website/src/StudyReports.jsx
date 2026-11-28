@@ -1,24 +1,12 @@
 import { useEffect, useRef, useState } from "react";
 import { supabase } from "./data";
+import { DEFAULT_REPORT_INSTRUCTIONS } from "./teaching-rules";
 import {
-  DEFAULT_REPORT_INSTRUCTIONS,
-  latestSubmissions,
-} from "./teaching-rules";
+  statistics,
+  statisticalReport,
+  analysisMaterial,
+} from "./study-statistics";
 import { FormError } from "./PlatformUI";
-async function invoke(body) {
-  const { data, error } = await supabase.functions.invoke("study-report", {
-    body,
-  });
-  let detail = data?.error;
-  if (error?.context instanceof Response) {
-    try {
-      detail = (await error.context.clone().json()).error;
-    } catch {}
-  }
-  if (error || detail)
-    throw Error(detail || "AI分析函数未部署或请求失败，请查看升级接入说明");
-  return data;
-}
 function ReportContent({ text }) {
   const inline = (line) =>
     line
@@ -47,53 +35,50 @@ export default function StudyReports({ user, data, demo, notice }) {
     students.push({
       id: "student-demo",
       display_name: "探索者同学",
-      username: "student-demo",
       institution_id: user.institution_id,
     });
   const [student, setStudent] = useState(students[0]?.id || ""),
     [days, setDays] = useState(14),
     [instructions, setInstructions] = useState(DEFAULT_REPORT_INSTRUCTIONS),
-    [messages, setMessages] = useState([]),
-    [question, setQuestion] = useState(""),
+    [history, setHistory] = useState([]),
     [report, setReport] = useState(""),
     [reportDays, setReportDays] = useState(14),
-    [history, setHistory] = useState([]),
+    [source, setSource] = useState(""),
+    [material, setMaterial] = useState(""),
+    [includeCode, setIncludeCode] = useState(false),
+    [imported, setImported] = useState(""),
     [busy, setBusy] = useState(false),
-    [error, setError] = useState(""),
-    [summary, setSummary] = useState(null);
+    [error, setError] = useState("");
   const epoch = useRef(0),
     key = "flowspark-study-reports-" + user.id;
+  const person = students.find((p) => p.id === student);
   useEffect(() => {
-    const e = ++epoch.current;
-    setMessages([]);
+    const ticket = ++epoch.current;
     setReport("");
-    setSummary(null);
+    setMaterial("");
+    setImported("");
     setError("");
+    setHistory([]);
     (async () => {
       try {
-        if (demo) {
-          const x = JSON.parse(localStorage.getItem(key) || "[]");
-          if (epoch.current === e)
-            setHistory(x.filter((r) => r.student_id === student));
-        } else if (student) {
-          const { data: r, error } = await supabase
+        let rows;
+        if (demo)
+          rows = JSON.parse(localStorage.getItem(key) || "[]").filter(
+            (r) => r.student_id === student,
+          );
+        else if (student) {
+          const result = await supabase
             .from("study_reports")
-            .select(
-              "id,student_id,period_days,instructions,conversation,content,summary,created_at",
-            )
+            .select("id,student_id,period_days,content,summary,created_at")
             .eq("student_id", student)
             .order("created_at", { ascending: false })
             .limit(20);
-          if (error) throw error;
-          if (epoch.current === e) setHistory(r);
+          if (result.error) throw result.error;
+          rows = result.data;
         }
-      } catch (e2) {
-        if (epoch.current === e)
-          setError(
-            e2.code === "PGRST205"
-              ? "请先执行第四版数据库升级，再使用报告保存与历史功能。"
-              : e2.message,
-          );
+        if (ticket === epoch.current) setHistory(rows || []);
+      } catch (e) {
+        if (ticket === epoch.current) setError(e.message);
       }
     })();
     return () => {
@@ -103,134 +88,123 @@ export default function StudyReports({ user, data, demo, notice }) {
   useEffect(() => {
     let live = true;
     (async () => {
-      try {
-        if (demo) {
-          const s = localStorage.getItem(key + "-template");
-          if (s && live) setInstructions(s);
-        } else {
-          const { data: r, error } = await supabase
-            .from("study_report_templates")
-            .select("instructions")
-            .eq("owner_id", user.id)
-            .maybeSingle();
-          if (!error && r && live) setInstructions(r.instructions);
-        }
-      } catch {}
+      if (demo) {
+        const s = localStorage.getItem(key + "-template");
+        if (s && live) setInstructions(s);
+      } else {
+        const r = await supabase
+          .from("study_report_templates")
+          .select("instructions")
+          .eq("owner_id", user.id)
+          .maybeSingle();
+        if (live && r.data) setInstructions(r.data.instructions);
+      }
     })();
     return () => {
       live = false;
     };
   }, [user.id, demo]);
-  const person = students.find((p) => p.id === student);
-  async function run(action) {
-    if (busy || !student) return;
-    const text =
-      action === "chat"
-        ? question.trim()
-        : "请根据当前报告要求、已确认的对话约定和服务端提交证据，生成或修订该学生的完整学情报告。";
-    if (!text) return;
+  async function snapshot(code = false) {
+    let rows = data.submissions || [],
+      assignments = data.assignments || [];
+    if (!demo) {
+      rows = [];
+      for (let offset = 0; ; offset += 500) {
+        const r = await supabase
+          .from("submissions")
+          .select(
+            "id,assignment_id,student_id,language,status,score,feedback,submitted_at,attempt_count" +
+              (code ? ",code" : ""),
+          )
+          .eq("student_id", student)
+          .order("id")
+          .range(offset, offset + 499);
+        if (r.error) throw r.error;
+        rows.push(...r.data);
+        if (r.data.length < 500) break;
+      }
+    }
+    if (!code) rows = rows.map(({ code, ...s }) => s);
+    return statistics(rows, assignments, student, days);
+  }
+  async function save(content, summary) {
+    if (!content.trim() || content.length > 40000)
+      throw Error("报告内容须为1至40000字，请缩短后保存");
+    let row = {
+      student_id: student,
+      institution_id: person.institution_id,
+      created_by: user.id,
+      period_days: days,
+      instructions,
+      conversation: [],
+      content,
+      summary,
+    };
+    if (demo) {
+      row = {
+        ...row,
+        id: crypto.randomUUID(),
+        created_at: new Date().toISOString(),
+      };
+      const all = JSON.parse(localStorage.getItem(key) || "[]");
+      localStorage.setItem(key, JSON.stringify([row, ...all]));
+    } else {
+      const r = await supabase
+        .from("study_reports")
+        .insert(row)
+        .select("id,student_id,period_days,content,summary,created_at")
+        .single();
+      if (r.error) throw r.error;
+      row = r.data;
+    }
+    return row;
+  }
+  async function action(kind) {
+    if (busy || !person) return;
+    const ticket = epoch.current;
     setBusy(true);
     setError("");
-    const ticket = epoch.current;
-    const next = [...messages, { role: "user", content: text }]
-      .slice(-11)
-      .map((m) => ({
-        ...m,
-        content:
-          m.content.slice(0, 3900) +
-          (m.content.length > 3900
-            ? "\n[较长历史内容已截断；完整报告保留在报告面板]"
-            : ""),
-      }));
-    setQuestion("");
     try {
-      let result;
-      if (demo) {
-        const recent = latestSubmissions(data.submissions).filter(
-          (s) =>
-            s.student_id === student &&
-            +new Date(s.submitted_at) >= Date.now() - days * 86400000,
-        );
-        const graded = recent.filter((s) => s.status === "graded");
-        const stats = {
-          latest_questions: recent.length,
-          graded_questions: graded.length,
-          pending_questions: recent.length - graded.length,
-          evidence_questions: recent.length,
-        };
-        result = {
-          summary: stats,
-          answer:
-            action === "chat"
-              ? "【本地演示，未调用AI】真实服务可按你的要求讨论报告结构、分析重点和语气。当前模板要求为：" +
-                instructions +
-                "\n正式AI接通后，将根据该学生服务端可见的最新代码与批阅记录回答；演示不会假装生成真实AI分析。"
-              : `# ${person?.display_name || "学生"}近期学情报告（本地统计演示，非AI分析）\n\n时间范围：近${days}天\n\n## 提交概况\n最新作业记录${recent.length}题，已批阅${graded.length}题，待批阅${stats.pending_questions}题。\n\n## 现有证据\n${recent.map((s) => "- " + (data.assignments.find((a) => a.id === s.assignment_id)?.title || "已下架题目") + "：" + s.language + "，" + (s.status === "graded" ? `教师评分${s.score}分` : "待批阅")).join("\n") || "无提交，证据不足。"}\n\n## 后续核实\n请教师核实代码思路、边界条件和独立完成情况。本地演示不运行代码，也不产生AI判断。\n\n## 你的报告要求\n${instructions}`,
-        };
-        if (action === "generate") {
-          const row = {
-            id: crypto.randomUUID(),
-            student_id: student,
-            period_days: days,
-            instructions,
-            conversation: next,
-            content: result.answer,
-            summary: stats,
-            created_at: new Date().toISOString(),
-          };
-          const all = JSON.parse(localStorage.getItem(key) || "[]");
-          localStorage.setItem(key, JSON.stringify([row, ...all]));
-          result.report = row;
-        }
-      } else
-        result = await invoke({
-          action,
-          student_id: student,
-          days,
+      if (kind === "export") {
+        const s = await snapshot(includeCode);
+        const text = analysisMaterial(
+          s,
           instructions,
-          messages: next,
+          (data.profiles || [])
+            .flatMap((p) => [p.display_name, p.username, p.id])
+            .concat([person.display_name, person.username, person.id]),
+        );
+        if (ticket === epoch.current) setMaterial(text);
+      } else {
+        const s = await snapshot();
+        const content =
+          kind === "import" ? imported.trim() : statisticalReport(s);
+        const row = await save(content, {
+          ...s,
+          mode: kind === "import" ? "manual_chatgpt" : "statistics",
+          imported_at: kind === "import" ? new Date().toISOString() : null,
         });
-      if (ticket !== epoch.current) return;
-      setMessages(
-        [...next, { role: "assistant", content: result.answer }].slice(-12),
-      );
-      setSummary(result.summary);
-      if (action === "generate") {
-        setReport(result.answer);
-        setReportDays(days);
-        if (result.report)
-          setHistory((h) =>
-            [
-              {
-                ...result.report,
-                student_id: student,
-                period_days: days,
-                instructions,
-                conversation: next,
-                content: result.answer,
-                summary: result.summary,
-              },
-              ...h,
-            ].slice(0, 20),
-          );
-        notice(result.save_error || "报告已生成并保存");
+        if (ticket === epoch.current) {
+          setReport(row.content);
+          setReportDays(row.period_days);
+          setSource(row.summary.mode);
+          setHistory((h) => [row, ...h].slice(0, 20));
+          notice("报告已保存");
+        }
       }
     } catch (e) {
-      if (ticket === epoch.current) {
-        setError(e.message);
-        setQuestion(action === "chat" ? text : "");
-      }
+      if (ticket === epoch.current) setError(e.message);
     } finally {
       if (ticket === epoch.current) setBusy(false);
     }
   }
-  function download() {
-    const blob = new Blob([report], { type: "text/markdown;charset=utf-8" }),
-      url = URL.createObjectURL(blob),
-      a = document.createElement("a");
+  function download(text, name) {
+    const url = URL.createObjectURL(
+      new Blob([text], { type: "text/markdown;charset=utf-8" }),
+    );
+    const a = document.createElement("a");
     a.href = url;
-    a.download =
-      (person?.display_name || "学生") + "_近" + reportDays + "天学情报告.md";
+    a.download = name;
     a.click();
     setTimeout(() => URL.revokeObjectURL(url), 1000);
   }
@@ -239,37 +213,35 @@ export default function StudyReports({ user, data, demo, notice }) {
       <div className="page-heading">
         <span className="eyebrow">LEARNING INSIGHTS</span>
         <h1>每一份代码，都有成长的线索。</h1>
-        <p>先讨论报告要求，再依据学生最新提交形成近期学情报告。</p>
+        <p>免费统计 · 手动ChatGPT分析 · 学生报告归档</p>
       </div>
       <a className="p-text-button" href="#admin">
         ← 返回管理员工作台
       </a>
       <p className="platform-note">
-        {demo
-          ? "演示模式：仅本地统计与流程预览，不调用真实AI。"
-          : "报告读取服务端授权数据，不使用浏览器传入的代码证据。AI结论需教师核实；没有运行或自动判题。"}{" "}
-        <a href="docs/teaching-v4.md" target="_blank" rel="noreferrer">
-          升级与AI接入说明
+        本站此流程不调用付费AI
+        API。管理员可将匿名资料手动上传ChatGPT，继续对话调整报告，再导入归档。
+        <a href="docs/report-free-workflow.md" target="_blank" rel="noreferrer">
+          {" "}
+          查看使用说明
         </a>
       </p>
       <div className="report-layout">
         <section className="admin-box">
-          <h2>分析对象与报告要求</h2>
+          <h2>1. 选择学生，生成免费统计</h2>
           <div className="p-form-grid">
             <label>
               学生账号
               <select
                 aria-label="分析学生"
-                disabled={busy}
                 value={student}
+                disabled={busy}
                 onChange={(e) => setStudent(e.target.value)}
               >
                 <option value="">选择学生</option>
                 {students.map((p) => (
                   <option key={p.id} value={p.id}>
-                    {p.display_name} · {p.username || p.id.slice(0, 8)} ·{" "}
-                    {data.institutions?.find((i) => i.id === p.institution_id)
-                      ?.name || "本机构"}
+                    {p.display_name} · {p.username || p.id.slice(0, 8)}
                   </option>
                 ))}
               </select>
@@ -289,15 +261,26 @@ export default function StudyReports({ user, data, demo, notice }) {
               </select>
             </label>
           </div>
+          <button
+            className="p-button"
+            disabled={busy || !student}
+            onClick={() => action("statistics")}
+          >
+            生成并保存统计报告
+          </button>
+          <h2>2. 导出资料，手动分析</h2>
           <label>
             报告结构、内容和表达要求
             <textarea
               aria-label="报告要求"
-              value={instructions}
-              onChange={(e) => setInstructions(e.target.value)}
-              maxLength={6000}
               rows={7}
+              value={instructions}
+              maxLength={6000}
               disabled={busy}
+              onChange={(e) => {
+                setInstructions(e.target.value);
+                setMaterial("");
+              }}
             />
           </label>
           <button
@@ -307,10 +290,10 @@ export default function StudyReports({ user, data, demo, notice }) {
               try {
                 if (demo) localStorage.setItem(key + "-template", instructions);
                 else {
-                  const { error } = await supabase
+                  const r = await supabase
                     .from("study_report_templates")
                     .upsert({ owner_id: user.id, instructions });
-                  if (error) throw error;
+                  if (r.error) throw r.error;
                 }
                 notice("已保存为我的报告模板");
               } catch (e) {
@@ -320,77 +303,109 @@ export default function StudyReports({ user, data, demo, notice }) {
           >
             保存为我的默认模板
           </button>
-          <h3>与AI讨论要求</h3>
-          <div className="report-chat" aria-live="polite">
-            {messages.length ? (
-              messages.map((m, i) => (
-                <article key={i} className={"report-message " + m.role}>
-                  <strong>
-                    {m.role === "user"
-                      ? "管理员"
-                      : demo
-                        ? "演示提示"
-                        : "AI助手"}
-                  </strong>
-                  <p>{m.content}</p>
-                </article>
-              ))
-            ) : (
-              <p>
-                例如：“请加入错题知识点、给家长的简明摘要，以及下周分层训练计划。”
-              </p>
-            )}
-          </div>
-          <form
-            onSubmit={(e) => {
-              e.preventDefault();
-              run("chat");
-            }}
+          <label className="report-code-option">
+            <input
+              type="checkbox"
+              checked={includeCode}
+              disabled={busy}
+              onChange={(e) => {
+                setIncludeCode(e.target.checked);
+                setMaterial("");
+              }}
+            />
+            附带最新代码（默认不选）
+          </label>
+          <p>
+            资料使用“学生A”代号，隐藏已知账号姓名、邮箱和手机号。上传前请检查下方预览中的个人信息，尤其是代码注释。
+          </p>
+          <button
+            className="p-button secondary"
+            disabled={busy || !student || !instructions.trim()}
+            onClick={() => action("export")}
           >
-            <label>
-              补充要求或追问
-              <textarea
-                aria-label="分析对话"
-                rows={3}
-                value={question}
-                onChange={(e) => setQuestion(e.target.value)}
-                maxLength={4000}
-                disabled={busy}
-              />
-            </label>
-            <div className="p-form-actions">
+            准备匿名分析资料
+          </button>
+          {material && (
+            <>
+              <label>
+                匿名资料预览（可编辑）
+                <textarea
+                  aria-label="匿名资料预览"
+                  rows={12}
+                  value={material}
+                  onChange={(e) => setMaterial(e.target.value)}
+                />
+              </label>
               <button
-                className="p-button secondary"
-                disabled={busy || !student || !question.trim()}
-              >
-                发送讨论
-              </button>
-              <button
-                type="button"
                 className="p-button"
-                disabled={busy || !student || !instructions.trim()}
-                onClick={() => run("generate")}
-              >
-                {busy ? "正在分析…" : "生成 / 修订报告"}
-              </button>
-              <button
-                type="button"
-                className="p-text-button"
                 disabled={busy}
-                onClick={() => {
-                  setMessages([]);
-                  setReport("");
-                  setSummary(null);
-                }}
+                onClick={() =>
+                  download(
+                    material,
+                    "学生A_近" + days + "天_ChatGPT分析资料.md",
+                  )
+                }
               >
-                开启新对话
+                下载分析资料
               </button>
-            </div>
-          </form>
+              <a
+                className="p-text-button"
+                href="https://chatgpt.com/"
+                target="_blank"
+                rel="noopener noreferrer"
+              >
+                打开ChatGPT ↗
+              </a>
+            </>
+          )}
+          <h2>3. 导入并归档分析报告</h2>
+          <p>
+            粘贴ChatGPT最终报告，或读取TXT、Markdown文件。将保存至当前学生：
+            {person?.display_name || "尚未选择"}，近{days}
+            天。导入内容由管理员核对，网站不自动验证AI结论。
+          </p>
+          <label>
+            读取报告文件
+            <input
+              aria-label="读取报告文件"
+              type="file"
+              accept=".txt,.md,text/plain,text/markdown"
+              disabled={busy}
+              onChange={async (e) => {
+                const f = e.target.files?.[0];
+                if (!f) return;
+                try {
+                  if (f.size > 200000) throw Error("文件请控制在200KB以内");
+                  const text = await f.text();
+                  if (text.length > 40000) throw Error("报告不得超过40000字");
+                  setImported(text);
+                } catch (e) {
+                  setError(e.message);
+                }
+                e.target.value = "";
+              }}
+            />
+          </label>
+          <label>
+            最终报告内容
+            <textarea
+              aria-label="最终报告内容"
+              rows={8}
+              maxLength={40000}
+              value={imported}
+              disabled={busy}
+              onChange={(e) => setImported(e.target.value)}
+            />
+          </label>
+          <button
+            className="p-button"
+            disabled={busy || !student || !imported.trim()}
+            onClick={() => action("import")}
+          >
+            保存导入报告
+          </button>
+          {busy && <p role="status">正在处理…</p>}
           <FormError error={error} />
-          <small>
-            服务端每名管理员每日最多30次AI对话或分析；API费用由机构自行配置和控制。
-          </small>
         </section>
         <section className="admin-box">
           <div className="p-section-heading">
@@ -399,7 +414,15 @@ export default function StudyReports({ user, data, demo, notice }) {
               <button
                 className="p-button secondary"
                 disabled={!report}
-                onClick={download}
+                onClick={() =>
+                  download(
+                    report,
+                    (person?.display_name || "学生") +
+                      "_近" +
+                      reportDays +
+                      "天学情报告.md",
+                  )
+                }
               >
                 下载报告
               </button>
@@ -412,27 +435,24 @@ export default function StudyReports({ user, data, demo, notice }) {
               </button>
             </div>
           </div>
-          {summary && (
-            <p className="platform-note">
-              近期最新提交 {summary.latest_questions}题 · 已批阅{" "}
-              {summary.graded_questions}题 · 待批阅 {summary.pending_questions}
-              题
-              {summary.omitted_questions > 0
-                ? " · 部分题目未纳入代码分析，请查看覆盖说明"
-                : ""}
-            </p>
-          )}
           {report ? (
             <article className="report-document">
               <h3>
-                {person?.display_name || "学生"} · 近{reportDays}天学情报告
+                {person?.display_name} · 近{reportDays}天学情报告
               </h3>
+              <p>
+                {source === "statistics"
+                  ? "来源：免费客观统计（非AI分析）"
+                  : source === "manual_chatgpt"
+                    ? "来源：管理员手动导入ChatGPT报告，需教师核实"
+                    : "来源：历史报告，需教师核实"}
+              </p>
               <ReportContent text={report} />
             </article>
           ) : (
             <div className="platform-empty">
               <h3>报告将在这里呈现</h3>
-              <p>可以先与AI讨论，再生成；没有提交时应如实说明证据不足。</p>
+              <p>先生成免费统计，或导入管理员核对后的分析报告。</p>
             </div>
           )}
           <h3>此学生的已保存报告</h3>
@@ -446,11 +466,16 @@ export default function StudyReports({ user, data, demo, notice }) {
                     onClick={() => {
                       setReport(r.content);
                       setReportDays(r.period_days);
-                      setSummary(r.summary);
+                      setSource(r.summary?.mode);
                     }}
                   >
                     {new Date(r.created_at).toLocaleString("zh-CN")} · 近
-                    {r.period_days}天
+                    {r.period_days}天 ·{" "}
+                    {r.summary?.mode === "statistics"
+                      ? "免费统计"
+                      : r.summary?.mode === "manual_chatgpt"
+                        ? "手动导入"
+                        : "历史报告"}
                   </button>
                 </li>
               ))}

@@ -1416,3 +1416,11 @@ small {
   background: #dcfff4;
   color: #10384a !important;
 }
+
+.report-code-option {display:flex!important;align-items:center;gap:12px;margin:20px 0;font-weight:700}
+.report-code-option input {width:20px!important;height:20px;accent-color:#0d7e87}
+.reports-page textarea {font-size:16px;line-height:1.65}
+.reports-page .admin-box>h2:not(:first-child) {margin-top:32px;padding-top:24px;border-top:1px solid #91b4c044}
+.reports-page .report-code-option {flex-direction:row!important;justify-content:flex-start!important}
+.reports-page .admin-box,.reports-page label {min-width:0}
+.reports-page textarea {box-sizing:border-box;width:100%;min-width:0;max-width:100%}

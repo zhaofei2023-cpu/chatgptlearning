@@ -137,8 +137,8 @@ export default function AdminPanel({ user, data, demo, refresh, notice }) {
       )}
       <div className="admin-shortcuts">
         <a href="#reports">
-          <b>AI学情报告 ↗</b>
-          <span>按学生查看近期代码，与AI讨论报告结构和内容</span>
+          <b>学情报告 ↗</b>
+          <span>免费学习统计、匿名资料导出与分析报告归档</span>
         </a>
         <a href="#resources">
           <b>资源中心管理 ↗</b>

@@ -1,3 +1,5 @@
+> 当前学情报告已升级为免费统计＋ChatGPT手动分析＋导入归档，无需配置付费API。请优先阅读 [免费报告使用说明](report-free-workflow.md)。以下AI函数接入部分仅供选择旧API方案时参考。
+
 # 第四版升级：教师题库、最新代码、AI学情与资源封面
 
 适用网站：https://zhaofei2023-cpu.github.io/chatgptlearning/

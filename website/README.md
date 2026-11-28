@@ -1,3 +1,5 @@
+当前学情报告使用免费统计、匿名资料导出和手动ChatGPT报告导入，详见 [使用说明](docs/report-free-workflow.md)。无需新增SQL或配置付费AI API。
+
 # 慧动科技 FlowSpark 学习探索平台
 
 React + Vite 静态网站，面向信息学竞赛教学。品牌主体：山西慧动科技。

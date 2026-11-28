@@ -11,7 +11,7 @@
     "test:browser": "node tests/browser.mjs",
     "format": "prettier --write src tests supabase/functions docs README.md",
     "test:institutions": "node scripts/build-bootstrap.mjs --check && node tests/institutions.mjs",
-    "test": "npm run test:permissions && npm run test:institutions && node tests/account-admin.mjs && node tests/account-export.mjs && node tests/platform-rules.mjs && node tests/content-permissions.mjs && node tests/teaching-v4.mjs && node tests/report-service.mjs",
+    "test": "npm run test:permissions && npm run test:institutions && node tests/account-admin.mjs && node tests/account-export.mjs && node tests/platform-rules.mjs && node tests/content-permissions.mjs && node tests/teaching-v4.mjs && node tests/report-service.mjs && node tests/study-statistics.mjs",
     "test:content:browser": "node tests/content-browser.mjs",
     "test:content:cloud": "node tests/content-cloud-browser.mjs",
     "test:v4:browser": "node tests/teaching-browser.mjs"
